@@ -352,7 +352,7 @@ def mfccs(freqs, power, sr, cfg: ExtractionConfig):
 def get_formants(sound: parselmouth.Sound, cfg: ExtractionConfig):
     try:
         formant = sound.to_formant_burg(
-            time_step=0.0,
+            time_step=None,
             max_number_of_formants=cfg.max_number_of_formants,
             maximum_formant=cfg.formant_ceiling,
             window_length=cfg.formant_window_length,
@@ -389,7 +389,7 @@ def get_f0(
     try:
         if pitch is None:
             pitch = sound.to_pitch_ac(
-                time_step=0.0,
+                time_step=None,
                 pitch_floor=cfg.f0_floor,
                 pitch_ceiling=cfg.f0_ceiling,
             )
@@ -412,7 +412,7 @@ def get_intensity(
         if intensity is None:
             intensity = sound.to_intensity(
                 minimum_pitch=cfg.f0_floor,
-                time_step=0.0,
+                time_step=None,
                 subtract_mean=True
             )
         if t is None:
@@ -616,13 +616,13 @@ def extract_pair(
     tg = parselmouth.Data.read(str(textgrid_path))
     try:
         pitch_track = sound.to_pitch_ac(
-            time_step=0.0,
+            time_step=None,
             pitch_floor=cfg.f0_floor,
             pitch_ceiling=cfg.f0_ceiling,
         )
         intensity_track = sound.to_intensity(
             minimum_pitch=cfg.f0_floor,
-            time_step=0.0,
+            time_step=None,
             subtract_mean=True,
         )
     except Exception:
