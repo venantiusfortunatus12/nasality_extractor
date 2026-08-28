@@ -920,9 +920,13 @@ CORE_TRAJECTORY_CUES = [
 def core_trajectory_preview_data(
     trajectories: pd.DataFrame,
     cue: str,
+    group_col: str = "speaker",
+    selected_group: str | None = None,
+    normalise_within_group: bool = False,
+    overall: bool = False,
 ) -> pd.DataFrame:
-    """Median curves on a common 31-point grid for preview plotting."""
-    cols = ["token_id", "speaker", "time_pct", cue]
+    """Median curves on a common grid, optionally oral-reference z-scored."""
+    cols = ["token_id", group_col, "time_pct", cue]
     if "phonemic_nasality_01" in trajectories.columns:
         cols.append("phonemic_nasality_01")
 
@@ -930,35 +934,52 @@ def core_trajectory_preview_data(
     data[cue] = pd.to_numeric(data[cue], errors="coerce")
     data["time_pct"] = pd.to_numeric(data["time_pct"], errors="coerce")
     data = data.dropna(subset=["time_pct", cue])
+    if selected_group is not None:
+        data = data[data[group_col].astype(str) == str(selected_group)]
     if data.empty:
         return pd.DataFrame()
 
+    if normalise_within_group:
+        z_col = f"{cue}_z"
+        data[z_col] = np.nan
+        for _, idx in data.groupby(group_col, dropna=False).groups.items():
+            idx = list(idx)
+            values = data.loc[idx, cue]
+            oral = data.loc[idx, "phonemic_nasality_01"] == 0
+            reference = values[oral] if oral.sum() >= 2 else values
+            sd = reference.std(ddof=0)
+            if np.isfinite(sd) and sd > 0:
+                data.loc[idx, z_col] = (values - reference.mean()) / sd
+        data = data.dropna(subset=[z_col])
+        value_col = z_col
+    else:
+        value_col = cue
+
     if "phonemic_nasality_01" in data.columns:
         nasality = data["phonemic_nasality_01"].map({0: "oral", 1: "nasal"})
-        data["group"] = (
-            data["speaker"].astype(str)
-            + " | "
-            + nasality.fillna("unlabelled")
-        )
+        if overall:
+            data["group"] = nasality.fillna("unlabelled")
+        else:
+            data["group"] = data[group_col].astype(str) + " | " + nasality.fillna("unlabelled")
     else:
-        data["group"] = data["speaker"].astype(str)
+        data["group"] = "all files" if overall else data[group_col].astype(str)
 
     grid = np.linspace(0.0, 100.0, 31)
     interpolated = []
     for (group, token_id), token in data.groupby(["group", "token_id"]):
         token = token.sort_values("time_pct").drop_duplicates("time_pct")
         x = token["time_pct"].to_numpy(float)
-        y = token[cue].to_numpy(float)
+        y = token[value_col].to_numpy(float)
         if len(x) < 2:
             continue
         inside = (grid >= x.min()) & (grid <= x.max())
         for t, value in zip(grid[inside], np.interp(grid[inside], x, y)):
-            interpolated.append({"time_pct": t, "group": group, cue: value})
+            interpolated.append({"time_pct": t, "group": group, value_col: value})
 
     if not interpolated:
         return pd.DataFrame()
     return pd.DataFrame(interpolated).pivot_table(
-        index="time_pct", columns="group", values=cue, aggfunc="median"
+        index="time_pct", columns="group", values=value_col, aggfunc="median"
     ).sort_index()
 
 
@@ -1526,10 +1547,9 @@ if st.button(
             use_container_width=True
         )
 
-        st.markdown("#### Core trajectory preview")
+        st.markdown("#### Raw core trajectory preview")
         st.caption(
-            "Each line is the median cue trajectory across tokens within a speaker × phonemic-nasality group. "
-            "Raw trajectories remain available in the Excel workbook."
+            "Raw values for one selected recording file. Each line is the median trajectory across its oral or nasal tokens."
         )
         cue_labels = {
             "A1_P0_dB": "A1-P0 (dB)",
@@ -1544,12 +1564,40 @@ if st.button(
             default=CORE_TRAJECTORY_CUES,
             format_func=lambda cue: cue_labels[cue],
         )
+        recording_files = sorted(traj_df["file"].dropna().astype(str).unique())
+        selected_file = st.selectbox(
+            "Recording file / speaker",
+            options=recording_files,
+        )
         for cue in selected_core_cues:
-            plot_data = core_trajectory_preview_data(traj_df, cue)
+            plot_data = core_trajectory_preview_data(
+                traj_df,
+                cue,
+                group_col="file",
+                selected_group=selected_file,
+            )
             if plot_data.empty:
                 st.warning(f"No usable values available for {cue_labels[cue]}.")
             else:
-                st.markdown(f"**{cue_labels[cue]}**")
+                st.markdown(f"**Raw {cue_labels[cue]} — {selected_file}**")
+                st.line_chart(plot_data, use_container_width=True)
+
+        st.markdown("#### Normalised overall trajectory preview")
+        st.caption(
+            "Each file is z-scored using its oral tokens as reference; the plot then shows the median oral/nasal curve across all files."
+        )
+        for cue in selected_core_cues:
+            plot_data = core_trajectory_preview_data(
+                traj_df,
+                cue,
+                group_col="file",
+                normalise_within_group=True,
+                overall=True,
+            )
+            if plot_data.empty:
+                st.warning(f"No normalised values available for {cue_labels[cue]}.")
+            else:
+                st.markdown(f"**Oral-reference z-score: {cue_labels[cue]}**")
                 st.line_chart(plot_data, use_container_width=True)
 
     xlsx = results_to_excel_bytes(
