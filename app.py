@@ -79,7 +79,14 @@ def safe_float(x):
 
 def get_intervals(tg, tier_name: str, required: bool = False) -> list[Interval]:
     try:
-        idx = int(call(tg, "Get tier number", tier_name))
+        # Praat exposes tier names and interval counts, but not a portable
+        # TextGrid "Get tier number" command through every parselmouth build.
+        # Resolve the requested tier explicitly instead.
+        n_tiers = int(call(tg, "Get number of tiers"))
+        idx = next(
+            i for i in range(1, n_tiers + 1)
+            if str(call(tg, "Get tier name", i)) == tier_name
+        )
         n = int(call(tg, "Get number of intervals", idx))
     except Exception:
         if required:
@@ -1422,10 +1429,13 @@ if st.button(
     if run_naf and not traj_df.empty:
         traj_df, naf_summary_df = add_naf_scores(traj_df)
 
-    st.success(
-        f"Done — {len(tokens_df):,} vowel tokens, "
-        f"{len(traj_df):,} trajectory rows."
-    )
+    if tokens_df.empty:
+        st.error("No vowel tokens were extracted. See the processing error below.")
+    else:
+        st.success(
+            f"Done — {len(tokens_df):,} vowel tokens, "
+            f"{len(traj_df):,} trajectory rows."
+        )
 
     if not tokens_df.empty:
         st.markdown("#### Token preview")
@@ -1480,8 +1490,9 @@ if st.button(
     if not failures_df.empty:
         st.error(
             f"{len(failures_df)} file pair(s) failed. "
-            "See the Failures sheet in the Excel workbook."
+            "The exact error is shown below and is also saved in the Failures sheet."
         )
+        st.dataframe(failures_df, use_container_width=True)
 
 st.divider()
 st.caption(
