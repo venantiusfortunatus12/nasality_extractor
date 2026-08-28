@@ -908,6 +908,60 @@ def add_naf_scores(trajectories: pd.DataFrame):
     return out, pd.DataFrame(summary)
 
 
+CORE_TRAJECTORY_CUES = [
+    "A1_P0_dB",
+    "B1_Hz",
+    "A3_P0_dB",
+    "spectral_tilt_dB_per_kHz",
+    "nasal_murmur_ratio_dB",
+]
+
+
+def core_trajectory_preview_data(
+    trajectories: pd.DataFrame,
+    cue: str,
+) -> pd.DataFrame:
+    """Median curves on a common 31-point grid for preview plotting."""
+    cols = ["token_id", "speaker", "time_pct", cue]
+    if "phonemic_nasality_01" in trajectories.columns:
+        cols.append("phonemic_nasality_01")
+
+    data = trajectories[cols].copy()
+    data[cue] = pd.to_numeric(data[cue], errors="coerce")
+    data["time_pct"] = pd.to_numeric(data["time_pct"], errors="coerce")
+    data = data.dropna(subset=["time_pct", cue])
+    if data.empty:
+        return pd.DataFrame()
+
+    if "phonemic_nasality_01" in data.columns:
+        nasality = data["phonemic_nasality_01"].map({0: "oral", 1: "nasal"})
+        data["group"] = (
+            data["speaker"].astype(str)
+            + " | "
+            + nasality.fillna("unlabelled")
+        )
+    else:
+        data["group"] = data["speaker"].astype(str)
+
+    grid = np.linspace(0.0, 100.0, 31)
+    interpolated = []
+    for (group, token_id), token in data.groupby(["group", "token_id"]):
+        token = token.sort_values("time_pct").drop_duplicates("time_pct")
+        x = token["time_pct"].to_numpy(float)
+        y = token[cue].to_numpy(float)
+        if len(x) < 2:
+            continue
+        inside = (grid >= x.min()) & (grid <= x.max())
+        for t, value in zip(grid[inside], np.interp(grid[inside], x, y)):
+            interpolated.append({"time_pct": t, "group": group, cue: value})
+
+    if not interpolated:
+        return pd.DataFrame()
+    return pd.DataFrame(interpolated).pivot_table(
+        index="time_pct", columns="group", values=cue, aggfunc="median"
+    ).sort_index()
+
+
 def results_to_excel_bytes(tokens, trajectories, failures, cfg, naf_summary=None):
     output = BytesIO()
 
@@ -1038,12 +1092,12 @@ def pair_uploads(wav_uploads, tg_uploads):
 # ============================================================
 
 st.set_page_config(
-    page_title="Nasality Acoustic Extractor",
+    page_title="Breton Nasality Acoustic Extractor",
     page_icon="🎙️",
     layout="wide"
 )
 
-st.title("🎙️Nasality Acoustic Extractor")
+st.title("🎙️ Breton Nasality Acoustic Extractor")
 st.caption(
     "WAV + TextGrid → time-varying vowel acoustics → Excel workbook"
 )
@@ -1472,6 +1526,32 @@ if st.button(
             use_container_width=True
         )
 
+        st.markdown("#### Core trajectory preview")
+        st.caption(
+            "Each line is the median cue trajectory across tokens within a speaker × phonemic-nasality group. "
+            "Raw trajectories remain available in the Excel workbook."
+        )
+        cue_labels = {
+            "A1_P0_dB": "A1-P0 (dB)",
+            "B1_Hz": "F1 bandwidth (Hz)",
+            "A3_P0_dB": "A3-P0 (dB)",
+            "spectral_tilt_dB_per_kHz": "Spectral tilt (dB/kHz)",
+            "nasal_murmur_ratio_dB": "Nasal-murmur ratio (dB)",
+        }
+        selected_core_cues = st.multiselect(
+            "Core cues to plot",
+            options=CORE_TRAJECTORY_CUES,
+            default=CORE_TRAJECTORY_CUES,
+            format_func=lambda cue: cue_labels[cue],
+        )
+        for cue in selected_core_cues:
+            plot_data = core_trajectory_preview_data(traj_df, cue)
+            if plot_data.empty:
+                st.warning(f"No usable values available for {cue_labels[cue]}.")
+            else:
+                st.markdown(f"**{cue_labels[cue]}**")
+                st.line_chart(plot_data, use_container_width=True)
+
     xlsx = results_to_excel_bytes(
         tokens_df,
         traj_df,
@@ -1483,7 +1563,7 @@ if st.button(
     st.download_button(
         "⬇️ Download Excel workbook",
         data=xlsx,
-        file_name="nasality_acoustic_trajectories.xlsx",
+        file_name="breton_nasality_acoustic_trajectories.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
