@@ -1038,12 +1038,12 @@ def pair_uploads(wav_uploads, tg_uploads):
 # ============================================================
 
 st.set_page_config(
-    page_title="Breton Nasality Acoustic Extractor",
+    page_title="Nasality Acoustic Extractor",
     page_icon="🎙️",
     layout="wide"
 )
 
-st.title("🎙️ Breton Nasality Acoustic Extractor")
+st.title("🎙️Nasality Acoustic Extractor")
 st.caption(
     "WAV + TextGrid → time-varying vowel acoustics → Excel workbook"
 )
@@ -1483,7 +1483,7 @@ if st.button(
     st.download_button(
         "⬇️ Download Excel workbook",
         data=xlsx,
-        file_name="breton_nasality_acoustic_trajectories.xlsx",
+        file_name="nasality_acoustic_trajectories.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
